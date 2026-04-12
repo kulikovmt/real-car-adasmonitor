@@ -1,0 +1,6 @@
+build/
+*.exe
+*.dll
+models/*.onnx
+data/*.csv
+output/
