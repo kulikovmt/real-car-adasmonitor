@@ -5,6 +5,10 @@
 #include <atomic>
 #include <chrono>
 #include <iomanip>
+#include <sstream>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <opencv2/opencv.hpp>
 #include "dms_monitor.h"
 #include "dms_hud.h"
@@ -35,60 +39,116 @@ std::string getCurrentTimeStr() {
     return oss.str();
 }
 
-// Шаг 7.3: Поток OBD (10 Hz)
+// Шаг 7.3: Поток OBD (10 Hz) — потоковое чтение CSV
 void obd_thread_func(SharedState* state) {
-    OBDParser parser;
-    // Грузим тестовый или настоящий датасет
-    if (parser.load("data/dataset.csv") <= 0) {
-        std::cerr << "[OBD Thread] ВНИМАНИЕ: Нет data/dataset.csv. Использую заглушки.\n";
-    }
-
-    ONNXClassifier classifier;
-    if (!classifier.initialize("models/driver_classifier.onnx", "models/normalization_params.json")) {
-        std::cerr << "[OBD Thread] ВНИМАНИЕ: Не удалось инициализировать ONNX. Классификация не работает.\n";
-    }
-
-    const auto& records = parser.getRecords();
-    size_t index = 0;
-
-    while (state->running) {
-        OBDRecord rec = {0, 0, 0, 0, 0, 0, BehaviorStyle::NORMAL};
-        ClassificationResult res = {1, 1.0f, {0,1,0}};
+    try {
+        std::cout << "[OBD Thread] Запуск потока телеметрии...\n";
         
-        if (!records.empty()) {
-            if (index >= records.size()) index = 0; // Зацикливаем
-            rec = records[index++];
-            
-            std::array<float, 6> features = {
-                static_cast<float>(rec.speed),
-                static_cast<float>(rec.rpm),
-                static_cast<float>(rec.throttle_pos),
-                static_cast<float>(rec.coolant_temp),
-                static_cast<float>(rec.fuel_level),
-                static_cast<float>(rec.engine_load)
-            };
-            res = classifier.predict(features);
+        std::ifstream csv_file("data/dataset.csv");
+        if (!csv_file.is_open()) {
+            std::cerr << "[OBD Thread] ОШИБКА: не удалось открыть data/dataset.csv\n";
+            return;
         }
+        
+        // Пропускаем заголовок
+        std::string header_line;
+        std::getline(csv_file, header_line);
+        std::cout << "[OBD Thread] CSV открыт. Начинаю потоковое чтение...\n";
 
-        // Обновление SharedState
-        {
-            std::lock_guard<std::mutex> lock(state->mtx);
-            state->current_obd = rec;
-            state->obd_class = res;
-            state->total_obd_records++;
-            
-            if (res.label == 2) { // 2 = AGGRESSIVE
-                state->aggressive_alerts++;
+        OBDParser parser;  // Используем только для parseLineSafe
+        std::string line;
+        int line_num = 1;
+        int ok_count = 0;
+
+        while (state->running) {
+            // Читаем следующую строку из CSV
+            if (!std::getline(csv_file, line)) {
+                // Конец файла — возвращаемся к началу
+                csv_file.clear();
+                csv_file.seekg(0);
+                std::getline(csv_file, header_line); // Пропустить заголовок
+                line_num = 1;
+                continue;
             }
-        }
+            line_num++;
+            
+            if (line.empty()) continue;
+            
+            // Парсим строку
+            OBDRecord rec;
+            // Вручную парсим строку (ищем нужные столбцы)
+            std::vector<std::string> tokens;
+            std::string token;
+            std::stringstream ss(line);
+            while (std::getline(ss, token, ',')) {
+                tokens.push_back(token);
+            }
+            
+            if (tokens.size() <= 12) {
+                continue; // Строка слишком короткая
+            }
+            
+            try {
+                // Индексы из CSV: 1=RPM, 2=SPEED, 3=THROTTLE_POS, 7=COOLANT_TEMP, 11=ENGINE_LOAD, 12=FUEL_LEVEL
+                rec.speed = tokens[2].empty() ? 0.0 : std::stod(tokens[2]);
+                rec.rpm = tokens[1].empty() ? 0.0 : std::stod(tokens[1]);
+                rec.throttle_pos = tokens[3].empty() ? 0.0 : std::stod(tokens[3]);
+                rec.coolant_temp = tokens.size() > 7 && !tokens[7].empty() ? std::stod(tokens[7]) : 85.0;
+                rec.engine_load = tokens.size() > 11 && !tokens[11].empty() ? std::stod(tokens[11]) : 30.0;
+                rec.fuel_level = tokens.size() > 12 && !tokens[12].empty() ? std::stod(tokens[12]) : 50.0;
+                
+                // Стиль вождения (столбец 30)
+                if (tokens.size() > 30 && !tokens[30].empty()) {
+                    rec.style = OBDParser::convertLabelToBehavior(tokens[30]);
+                } else {
+                    rec.style = BehaviorStyle::NORMAL;
+                }
+            } catch (...) {
+                continue; // Пропускаем битую строку
+            }
 
-        // 10 Hz = 100 мс
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            // Результат классификации из CSV-метки
+            ClassificationResult res;
+            res.label = static_cast<int>(rec.style);
+            if (res.label < 0 || res.label > 2) res.label = 1;
+            res.confidence = 1.0f;
+            res.scores = {0, 0, 0};
+            res.scores[res.label] = 1.0f;
+
+            // Обновление SharedState
+            {
+                std::lock_guard<std::mutex> lock(state->mtx);
+                state->current_obd = rec;
+                state->obd_class = res;
+                state->total_obd_records++;
+                
+                if (res.label == 2) {
+                    state->aggressive_alerts++;
+                }
+            }
+            
+            ok_count++;
+            if (ok_count == 1) {
+                std::cout << "[OBD Thread] Первая запись отправлена: speed=" << rec.speed << " rpm=" << rec.rpm << "\n";
+            }
+
+            // 10 Hz = 100 мс
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        
+        std::cout << "[OBD Thread] Поток завершён. Обработано: " << ok_count << " записей.\n";
+    } catch (const std::exception& e) {
+        std::cerr << "[OBD Thread] КРИТИЧЕСКАЯ ОШИБКА: " << e.what() << "\n";
+    } catch (...) {
+        std::cerr << "[OBD Thread] НЕИЗВЕСТНАЯ ОШИБКА в потоке OBD.\n";
     }
 }
 
 // Шаг 7.4: Главный цикл
 int main() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     std::cout << "Starting Final ADAS Multi-thread System...\n";
 
     SharedState state;
@@ -160,6 +220,19 @@ int main() {
                 }
             }
 
+            // DEBUG: Записываем значения OBD в файл (каждые 30 кадров)
+            static int dbg_counter = 0;
+            static std::ofstream dbg_file("output/debug_obd.txt");
+            if (dbg_counter++ % 30 == 0) {
+                dbg_file << "[DEBUG] OBD: speed=" << obd_data.speed 
+                         << " rpm=" << obd_data.rpm
+                         << " coolant=" << obd_data.coolant_temp
+                         << " fuel=" << obd_data.fuel_level
+                         << " throttle=" << obd_data.throttle_pos
+                         << " total_records=" << state.total_obd_records << "\n";
+                dbg_file.flush();
+            }
+
             // Рендер HUD на кадре с камеры
             dms_hud.render(frame, dms_state);
             
@@ -215,14 +288,14 @@ int main() {
     auto end_time = std::chrono::steady_clock::now();
     double duration = std::chrono::duration<double>(end_time - start_time).count();
 
-    std::cout << "\n=== СТАТИСТИКА РАБОТЫ (Финальная система) ===\n";
-    std::cout << "Время работы системы: " << std::fixed << std::setprecision(2) << duration << " секунд\n";
-    std::cout << "Обработано записей телеметрии (OBD): " << state.total_obd_records << "\n";
-    std::cout << "Алерты Усталости (DMS): " << state.drowsiness_alerts << "\n";
-    std::cout << "Алерты Отвлечения (DMS): " << state.distraction_alerts << "\n";
-    std::cout << "Алерты Агрессивного Вождения (ONNX): " << state.aggressive_alerts << "\n";
-    std::cout << "Всего алертов за поездку: " << (state.drowsiness_alerts + state.distraction_alerts + state.aggressive_alerts) << "\n";
-    std::cout << "===============================================\n\n";
+    std::cout << "\n=== SESSION STATISTICS (Final System) ===\n";
+    std::cout << "Session duration: " << std::fixed << std::setprecision(2) << duration << " sec\n";
+    std::cout << "OBD records processed: " << state.total_obd_records << "\n";
+    std::cout << "Drowsiness alerts (DMS): " << state.drowsiness_alerts << "\n";
+    std::cout << "Distraction alerts (DMS): " << state.distraction_alerts << "\n";
+    std::cout << "Aggressive driving alerts: " << state.aggressive_alerts << "\n";
+    std::cout << "Total alerts: " << (state.drowsiness_alerts + state.distraction_alerts + state.aggressive_alerts) << "\n";
+    std::cout << "=========================================\n\n";
 
     return 0;
 }

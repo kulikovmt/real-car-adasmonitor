@@ -19,17 +19,23 @@ int OBDParser::load(const std::string& filepath) {
     }
 
     // Читаем остальные строки
+    int warn_count = 0;
     while (std::getline(file, line)) {
         lineNumber++;
-        if (line.empty()) continue; // Пропускаем полностью пустые строки (не считая их ошибочными)
+        if (line.empty()) continue;
 
         OBDRecord record;
         if (parseLineSafe(line, record)) {
             records_.push_back(record);
         } else {
-            // Если строка содержит некорректные данные – пропустить с предупреждением в std::cerr
-            std::cerr << "Warning: invalid data format at line " << lineNumber << " - skipping record.\n";
+            warn_count++;
+            if (warn_count <= 3) {
+                std::cerr << "Warning: invalid data format at line " << lineNumber << " - skipping record.\n";
+            }
         }
+    }
+    if (warn_count > 3) {
+        std::cerr << "... (" << warn_count << " invalid lines total, suppressed)\n";
     }
 
     // Метод load() возвращает количество загруженных записей

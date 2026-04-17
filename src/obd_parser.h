@@ -1,10 +1,16 @@
+/**
+ * @file obd_parser.h
+ * @brief OBD-II telemetry CSV parser module.
+ */
 #pragma once
 
 #include <string>
 #include <vector>
 #include <stdexcept>
 
-// Перечисление для стилей вождения (для удобства конвертации "SLOW"/"NORMAL"/"AGGRESSIVE")
+/**
+ * @brief Driving behavior style classification.
+ */
 enum class BehaviorStyle {
     UNKNOWN = -1,
     SLOW = 0,
@@ -12,37 +18,66 @@ enum class BehaviorStyle {
     AGGRESSIVE = 2
 };
 
-// Структура хранения данных одной считанной строки OBD-II
+/**
+ * @brief Single OBD-II telemetry record from CSV.
+ */
 struct OBDRecord {
-    double speed;          // Скорость (SPEED)
-    double rpm;            // Обороты двигателя (RPM)
-    double throttle_pos;   // Положение дроссельной заслонки (THROTTLE_POS)
-    double coolant_temp;   // Температура охлаждающей жидкости (COOLANT_TEMP)
-    double fuel_level;     // Уровень топлива (FUEL_LEVEL)
-    double engine_load;    // Нагрузка на двигатель (ENGINE_LOAD)
-    BehaviorStyle style;   // Метка стиля вождения (SLOW/NORMAL/AGGRESSIVE)
+    double speed;          ///< Vehicle speed (km/h)
+    double rpm;            ///< Engine RPM
+    double throttle_pos;   ///< Throttle position (%)
+    double coolant_temp;   ///< Coolant temperature (C)
+    double fuel_level;     ///< Fuel level (%)
+    double engine_load;    ///< Engine load (%)
+    BehaviorStyle style;   ///< Driving style label (SLOW/NORMAL/AGGRESSIVE)
 };
 
-// Парсер данных OBD-II телеметрии (CSV)
+/**
+ * @brief Parser for OBD-II telemetry data in CSV format.
+ * 
+ * Reads CSV files containing vehicle telemetry data,
+ * parses each line into OBDRecord structures, and provides
+ * access to the parsed records.
+ */
 class OBDParser {
 public:
     OBDParser() = default;
 
-    // Возвращает количество загруженных записей или -1 при ошибке (например, файл не найден)
+    /**
+     * @brief Load and parse a CSV file.
+     * @param filepath Path to the CSV file.
+     * @return Number of successfully parsed records, or -1 on file error.
+     */
     int load(const std::string& filepath);
 
-    // Возвращает конкретную запись. Бросает std::out_of_range при неверном индексе
+    /**
+     * @brief Get a specific record by index.
+     * @param index Record index (0-based).
+     * @return Reference to the OBDRecord.
+     * @throws std::out_of_range if index is invalid.
+     */
     const OBDRecord& getRecord(int index) const;
 
-    // Получить все распарсенные записи
+    /**
+     * @brief Get all parsed records.
+     * @return Const reference to the vector of OBDRecord.
+     */
     const std::vector<OBDRecord>& getRecords() const;
 
-    // Метод для конвертации текстовой строки стиля вождения в enum/число (SLOW -> 0, и т.д.)
+    /**
+     * @brief Convert a text label to BehaviorStyle enum.
+     * @param label String label ("SLOW", "NORMAL", "AGGRESSIVE").
+     * @return Corresponding BehaviorStyle value.
+     */
     static BehaviorStyle convertLabelToBehavior(const std::string& label);
 
 private:
     std::vector<OBDRecord> records_;
 
-    // Метод для безопасного парсинга одной строки с обработкой неверного формата данных
+    /**
+     * @brief Safely parse a single CSV line into an OBDRecord.
+     * @param line Raw CSV line.
+     * @param record Output record.
+     * @return true if parsing succeeded, false otherwise.
+     */
     bool parseLineSafe(const std::string& line, OBDRecord& record) const;
 };

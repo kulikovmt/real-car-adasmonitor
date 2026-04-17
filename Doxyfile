@@ -1,0 +1,26 @@
+# Doxyfile - Configuration for Doxygen documentation generator
+
+PROJECT_NAME           = "Real Car ADAS Monitor"
+PROJECT_BRIEF          = "Multi-threaded ADAS system with OBD-II telemetry and Driver Monitoring"
+PROJECT_NUMBER         = "1.0"
+
+OUTPUT_DIRECTORY       = docs/doxygen
+INPUT                  = src/
+FILE_PATTERNS          = *.h *.cpp
+RECURSIVE              = YES
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+
+HAVE_DOT               = NO
+CLASS_DIAGRAMS         = YES
+
+OPTIMIZE_OUTPUT_FOR_C  = NO
+BUILTIN_STL_SUPPORT    = YES
