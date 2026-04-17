@@ -6,7 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(OpenCV_DIR "C:/opencv/build" CACHE PATH "")
-find_package(OpenCV)
+set(OpenCV_RUNTIME "vc16" CACHE STRING "")
+find_package(OpenCV REQUIRED)
 
 set(ONNXRUNTIME_DIR "C:/onnxruntime" CACHE PATH "")
 include_directories(${ONNXRUNTIME_DIR}/include)
@@ -16,9 +17,8 @@ file(GLOB_RECURSE SRC_FILES "src/*.cpp")
 add_executable(RealCarMonitor ${SRC_FILES})
 
 target_include_directories(RealCarMonitor PRIVATE src)
-target_link_libraries(RealCarMonitor PRIVATE ${OpenCV_LIBS} onnxruntime)
+target_link_libraries(RealCarMonitor PRIVATE ${OpenCV_LIBS} onnxruntime nlohmann_json::nlohmann_json)
 
-set(FETCHCONTENT_BASE_DIR "C:/temp/real-car-gtest-fetch" CACHE PATH "")
 include(FetchContent)
 FetchContent_Declare(
   googletest
@@ -27,6 +27,12 @@ FetchContent_Declare(
 )
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
+
+FetchContent_Declare(json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(json)
 
 enable_testing()
 
@@ -43,6 +49,7 @@ target_link_libraries(RunTests PRIVATE
     GTest::gtest 
     ${OpenCV_LIBS} 
     onnxruntime
+    nlohmann_json::nlohmann_json
 )
 
 add_test(NAME RunTests COMMAND RunTests)

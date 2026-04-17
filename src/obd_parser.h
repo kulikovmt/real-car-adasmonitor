@@ -19,6 +19,7 @@ struct OBDRecord {
     double throttle_pos;   // Положение дроссельной заслонки (THROTTLE_POS)
     double coolant_temp;   // Температура охлаждающей жидкости (COOLANT_TEMP)
     double fuel_level;     // Уровень топлива (FUEL_LEVEL)
+    double engine_load;    // Нагрузка на двигатель (ENGINE_LOAD)
     BehaviorStyle style;   // Метка стиля вождения (SLOW/NORMAL/AGGRESSIVE)
 };
 

@@ -4,3 +4,12 @@ build/
 models/*.onnx
 data/*.csv
 output/
+
+# Trash and temporary files
+*.txt
+*.bak
+*.png
+*.docx
+*.py
+!README.md
+!docs/*.md

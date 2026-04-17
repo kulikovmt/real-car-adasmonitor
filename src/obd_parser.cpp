@@ -87,6 +87,7 @@ bool OBDParser::parseLineSafe(const std::string& line, OBDRecord& record) const 
         record.speed = std::stod(tokens[2]);
         record.throttle_pos = std::stod(tokens[3]);
         record.coolant_temp = std::stod(tokens[7]);
+        record.engine_load = std::stod(tokens[11]);
         record.fuel_level = std::stod(tokens[12]);
         
         // Обработка метки стиля (если есть столбец 30)
